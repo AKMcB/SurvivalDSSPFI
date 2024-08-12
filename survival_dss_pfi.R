@@ -2,14 +2,16 @@ library(shiny)
 library(bslib)
 library(mclust)
 library(tidyverse)
+library(survival)
+library(survminer)
 set.seed(123)
 
 expr <- readRDS("survival_tcga.rds")
-gene <- read.csv("expr_cutoff_genes_cancer_type_tcga.csv")
+gene_data <- read.csv("expr_cutoff_genes_cancer_type_tcga.csv")
 
 
 create_km <- function(data, gene_data, GENE, CANCER, analysis_type) {
-  expr <- select(data, c("id", GENE, `cancer type abbreviation`, analysis_type, paste(analysis_type,".time", sep = "")))
+  expr <- expr %>% select(c("id", GENE, `cancer type abbreviation`, all_of(analysis_type), paste(analysis_type,".time", sep = "")))
   colnames(expr)[2] <- "gene"
   expr <- subset(expr, expr$`cancer type abbreviation` == CANCER)
   info_surv <- select(expr, c("id", "gene", "cancer type abbreviation", analysis_type, paste(analysis_type,".time", sep = "")))
@@ -17,26 +19,38 @@ create_km <- function(data, gene_data, GENE, CANCER, analysis_type) {
   info_surv$cancer_type <- as.factor(info_surv$`cancer type abbreviation`)
   
   # Extract cutoff based on the gene and cancer type of interest
-  cutoff <- gene_data %>% filter(gene == GENE & cancer == CANCER) %>% pull(cutoff_value)
+  cutoff <- gene_data %>% filter(gene== GENE & cancer == CANCER) %>% pull(cutoff_value)
   
-  if (length(cutoff) == 0) return(NULL)
+  if (length(cutoff) == 0) {
+    message("no cutoff value found for the combination")
+    return(NULL)
+  } 
   
   # Define gene expression based on cutoff
   info_surv$gene_expression <- ifelse(info_surv$gene >= cutoff, 'High', "Low")
   
-  if (all(is.na(info_surv$gene_expression))) return(NULL)
+  if (all(is.na(info_surv$gene_expression))){ 
+    message("all values are NA")
+    return(NULL)
+  }
   
   column <- paste(analysis_type, ".time", sep = "")
   info_surv <- subset(info_surv, info_surv[[column]] > 0)
   
-  if (nrow(info_surv) == 0) return(NULL)
+  if (nrow(info_surv) == 0) {
+    message("no valdig data is available")
+    return(NULL)
+  } 
   
   # Convert time into years
   info_surv$years <- info_surv[[column]] / 365
   info_surv <- info_surv[complete.cases(info_surv),]
   
   # Check if the gene expression groups have sufficient observations
-  if (length(unique(info_surv$gene_expression)) < 2) return(NULL)
+  if (length(unique(info_surv$gene_expression)) < 2) {
+    message("not enough data points in gene expression groups")
+    return(NULL)
+  } 
   
   column_analysis <- paste(analysis_type)
   # Define survival
@@ -70,7 +84,6 @@ create_km <- function(data, gene_data, GENE, CANCER, analysis_type) {
     ), 
     font.x = 14, font.y = 14, font.tickslab = 14
   )
-  
   return(p)
 }
 
@@ -80,11 +93,11 @@ ui <- fluidPage(
   
   sidebarLayout(
     sidebarPanel(
-      selectInput("GENE", "Select Gene:", choices = sort(unique(gene$gene))),
-      selectInput("CANCER", "Select Cancer Type:", choices = sort(unique(gene$cancer))),
+      selectInput("GENE", "Select Gene:", choices = sort(unique(gene_data$gene))),
+      selectInput("CANCER", "Select Cancer Type:", choices = sort(unique(gene_data$cancer))),
       selectInput("analysis_type", "Survival Type", choices = c("DSS", "PFI")),
       sliderInput("y_axis", "Y Axis Limit", min = 0, max = 1, value = c(0, 1)),
-      sliderInput("x_axis", "X Axis Limit (Years)", min = 0, max = 30, value = c(0, 30)),
+      sliderInput("x_axis", "X Axis Limit (Years)", min = 0, max = 25, value = c(0, 30)),
       actionButton("update", "Update"),
       downloadButton("downloadPlot", "Download Plot")
     ),
@@ -100,7 +113,7 @@ ui <- fluidPage(
 server <- function(input, output, session) {
   
   observeEvent(input$update, {
-    result <- create_km(expr, gene, input$GENE, input$CANCER, input$analysis_type)
+    result <- create_km(expr, gene_data, input$GENE, input$CANCER, input$analysis_type)
     
     output$SurvPlot <- renderPlot({
       if (!is.null(result)) {
@@ -120,7 +133,7 @@ server <- function(input, output, session) {
       paste("survival_", input$CANCER, "_", input$GENE, "_", input$analysis_type, ".pdf", sep = "")
     },
     content = function(file) {
-      p <- create_km(expr, gene, input$GENE, input$CANCER, input$analysis_type)
+      p <- create_km(expr, gene_data, input$GENE, input$CANCER, input$analysis_type)
       if (!is.null(p)) {
         main_plot <- p$plot + 
           xlim(input$x_axis[1], input$x_axis[2]) + 
