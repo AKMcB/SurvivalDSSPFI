@@ -97,7 +97,7 @@ ui <- fluidPage(
       selectInput("CANCER", "Select Cancer Type:", choices = sort(unique(gene_data$cancer))),
       selectInput("analysis_type", "Survival Type", choices = c("DSS", "PFI")),
       sliderInput("y_axis", "Y Axis Limit", min = 0, max = 1, value = c(0, 1)),
-      sliderInput("x_axis", "X Axis Limit (Years)", min = 0, max = 25, value = c(0, 30)),
+      sliderInput("x_axis", "X Axis Limit (Years)", min = 0, max = 25, value = c(0, 25)),
       actionButton("update", "Update"),
       downloadButton("downloadPlot", "Download Plot")
     ),
